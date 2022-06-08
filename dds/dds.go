@@ -54,7 +54,7 @@ func LoadDDS(ddsFileReader io.Reader) (DDSHeader, DDSHeaderDXT10, [][][]byte, er
 
 	var magic [4]byte
 	if _, err := ddsFileReader.Read(magic[:]); err != nil {
-		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Error when reading file: " + err.Error())
+		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Error when reading dds file: " + err.Error())
 	}
 	if magic != MAGIC {
 		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Invalid DDS file.")
@@ -62,7 +62,7 @@ func LoadDDS(ddsFileReader io.Reader) (DDSHeader, DDSHeaderDXT10, [][][]byte, er
 
 	var header DDSHeader
 	if err := binary.Read(ddsFileReader, byteOrder, &header); err != nil {
-		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Error when reading file: " + err.Error())
+		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Error when reading dds file: " + err.Error())
 	}
 	if header.Size != 124 {
 		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Invalid DDS file size: " + fmt.Sprint(header.Size))
@@ -73,7 +73,7 @@ func LoadDDS(ddsFileReader io.Reader) (DDSHeader, DDSHeaderDXT10, [][][]byte, er
 
 	var headerDXT10 DDSHeaderDXT10
 	if err := binary.Read(ddsFileReader, byteOrder, &headerDXT10); err != nil {
-		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Error when reading file: " + err.Error())
+		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Error when reading dds file: " + err.Error())
 	}
 
 	dxgiFormatInfo, dxgiFormatInfoSupported := DXGI_FORMAT_INFO_MAP[headerDXT10.DxgiFormat]
@@ -94,7 +94,7 @@ func LoadDDS(ddsFileReader io.Reader) (DDSHeader, DDSHeaderDXT10, [][][]byte, er
 			blockHeight := utils.Align(h, dxgiFormatInfo.PixelBlockSize) / dxgiFormatInfo.PixelBlockSize
 			surfaces[i][mipmapLevel] = make([]byte, blockWidth*dxgiFormatInfo.PixelBlockSize*blockHeight*dxgiFormatInfo.PixelBlockSize*dxgiFormatInfo.BitsPerPixel/8)
 			if _, err := ddsFileReader.Read(surfaces[i][mipmapLevel]); err != nil {
-				return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Error when reading file: " + err.Error())
+				return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Error when reading dds file: " + err.Error())
 			}
 			w /= 2
 			h /= 2

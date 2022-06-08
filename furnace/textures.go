@@ -8,6 +8,7 @@ import (
 // copied from PredatorCZ/XenoLib
 // https://github.com/PredatorCZ/XenoLib/blob/2f14c0bd3765ee4439e91034028c0acb0493f95f/source/LBIM.cpp#L204
 // GPLv3 License https://www.gnu.org/licenses/
+
 func GetSwizzled(data []byte, width, height uint32, format dds.DxgiFormat) []byte {
 	formatInfo := dds.DXGI_FORMAT_INFO_MAP[format]
 	bytesPerBlock := formatInfo.BitsPerPixel * formatInfo.PixelBlockSize * formatInfo.PixelBlockSize / 8

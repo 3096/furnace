@@ -19,6 +19,6 @@ func NativeByteOrder() binary.ByteOrder {
 	}
 }
 
-func Align(size, alignment uint) uint {
+func Align(size, alignment uint32) uint32 {
 	return (size + alignment - 1) &^ (alignment - 1)
 }

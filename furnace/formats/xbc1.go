@@ -22,13 +22,21 @@ type XBC1Header struct {
 	Name             [0x1C]byte
 }
 
-func ExtractXBC1(reader io.Reader) (XBC1Header, []byte, error) {
+func ReadXBC1Header(reader io.Reader) (XBC1Header, error) {
 	var header XBC1Header
 	if err := binary.Read(reader, furnace.TargetByteOrder, &header); err != nil {
-		return XBC1Header{}, nil, errors.New("Error reading xbc1 header: " + err.Error())
+		return XBC1Header{}, errors.New("Error reading xbc1 header: " + err.Error())
 	}
 	if header.Magic != XBC1_MAGIC {
-		return XBC1Header{}, nil, errors.New("Invalid xbc1 header")
+		return XBC1Header{}, errors.New("Invalid xbc1 header")
+	}
+	return header, nil
+}
+
+func ExtractXBC1(reader io.Reader) (XBC1Header, []byte, error) {
+	header, err := ReadXBC1Header(reader)
+	if err != nil {
+		return XBC1Header{}, nil, err
 	}
 	if header.NumFiles != 1 {
 		return XBC1Header{}, nil, errors.New("Unexpected number of files in xbc1: " + fmt.Sprint(header.NumFiles))

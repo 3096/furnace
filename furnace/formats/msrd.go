@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/3096/furnace/furnace"
+	"github.com/3096/furnace/utils"
 )
 
 const MSRD_MAGIC uint32 = 'M'<<24 | 'S'<<16 | 'R'<<8 | 'D'
@@ -115,4 +116,44 @@ func ReadMSRD(reader io.ReadSeeker) (MSRD, error) {
 		DataItems:  dataItems,
 		Files:      files,
 	}, nil
+}
+
+func writeMSRD(writer io.WriteSeeker, msrd MSRD) error {
+	if err := binary.Write(utils.NewInPlaceWriter(msrd.MetaData, 0), furnace.TargetByteOrder, &msrd.MetaHeader); err != nil {
+		return errors.New("Error writing msrd meta header: " + err.Error())
+	}
+
+	if err := binary.Write(utils.NewInPlaceWriter(msrd.MetaData, int(msrd.MetaHeader.DataItemsTableOffset)), furnace.TargetByteOrder, &msrd.DataItems); err != nil {
+		return errors.New("Error writing msrd data items: " + err.Error())
+	}
+
+	fileItemsWriter := utils.NewInPlaceWriter(msrd.MetaData, int(msrd.MetaHeader.FileTableOffset))
+	curFileOffset := msrd.Header.MetaDataOffset + msrd.Header.MetaDataSize
+	for i := range msrd.Files {
+		xbc1Header, err := ReadXBC1Header(bytes.NewReader(msrd.Files[i]))
+		if err != nil {
+			return errors.New("Error reading xbc1 header: " + err.Error())
+		}
+		if err := binary.Write(fileItemsWriter, furnace.TargetByteOrder, &MSRDFileItem{
+			CompressedSize:   uint32(len(msrd.Files[i])),
+			UncompressedSize: xbc1Header.UncompressedSize,
+			Offset:           curFileOffset,
+		}); err != nil {
+			return errors.New("Error writing msrd file items: " + err.Error())
+		}
+		curFileOffset += uint32(len(msrd.Files[i]))
+	}
+
+	if err := binary.Write(writer, furnace.TargetByteOrder, &msrd.Header); err != nil {
+		return errors.New("Error writing msrd header: " + err.Error())
+	}
+	if _, err := writer.Write(msrd.MetaData); err != nil {
+		return errors.New("Error writing msrd metadata: " + err.Error())
+	}
+	for i := range msrd.Files {
+		if _, err := writer.Write(msrd.Files[i]); err != nil {
+			return errors.New("Error writing msrd file " + fmt.Sprint(i) + ": " + err.Error())
+		}
+	}
+	return nil
 }

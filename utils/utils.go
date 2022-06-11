@@ -22,3 +22,18 @@ func NativeByteOrder() binary.ByteOrder {
 func Align(size, alignment uint32) uint32 {
 	return (size + alignment - 1) &^ (alignment - 1)
 }
+
+type InPlaceWriter struct {
+	buf []byte
+	off int
+}
+
+func NewInPlaceWriter(buf []byte, off int) *InPlaceWriter {
+	return &InPlaceWriter{buf, off}
+}
+
+func (w *InPlaceWriter) Write(p []byte) (n int, err error) {
+	copy(w.buf[w.off:], p)
+	w.off += len(p)
+	return len(p), nil
+}

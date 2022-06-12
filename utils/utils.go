@@ -2,6 +2,8 @@ package utils
 
 import (
 	"encoding/binary"
+	"os"
+	"path"
 	"unsafe"
 )
 
@@ -36,4 +38,18 @@ func (w *InPlaceWriter) Write(p []byte) (n int, err error) {
 	copy(w.buf[w.off:], p)
 	w.off += len(p)
 	return len(p), nil
+}
+
+func EnsureDirectory(targetPath string) error {
+	dir := path.Dir(targetPath)
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+	return nil
 }

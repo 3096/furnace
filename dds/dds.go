@@ -240,6 +240,31 @@ type DxgiFormatInfo struct {
 }
 
 var DXGI_FORMAT_INFO_MAP = map[DXGIFormat]DxgiFormatInfo{
+	DXGI_FORMAT_BC1_UNORM: {
+		Name:         "BC1_UNORM",
+		BitsPerPixel: 4,
+		BlockSideLen: 4,
+	},
+	DXGI_FORMAT_BC2_UNORM: {
+		Name:         "BC2_UNORM",
+		BitsPerPixel: 8,
+		BlockSideLen: 4,
+	},
+	DXGI_FORMAT_BC3_UNORM: {
+		Name:         "BC3_UNORM",
+		BitsPerPixel: 8,
+		BlockSideLen: 4,
+	},
+	DXGI_FORMAT_BC4_UNORM: {
+		Name:         "BC4_UNORM",
+		BitsPerPixel: 4,
+		BlockSideLen: 4,
+	},
+	DXGI_FORMAT_BC5_UNORM: {
+		Name:         "BC5_UNORM",
+		BitsPerPixel: 8,
+		BlockSideLen: 4,
+	},
 	DXGI_FORMAT_BC7_UNORM: {
 		Name:         "BC7_UNORM",
 		BitsPerPixel: 8,

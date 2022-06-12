@@ -1,4 +1,4 @@
-package furnace
+package formats
 
 import (
 	"bytes"
@@ -21,6 +21,10 @@ type XBC1Header struct {
 	Hash             uint32
 	Name             [0x1C]byte
 }
+
+type XBC1 []byte
+
+const XBC1_ZLIB_COMPRESSION_LEVEL = zlib.BestCompression
 
 func ReadXBC1Header(reader io.Reader) (XBC1Header, error) {
 	var header XBC1Header
@@ -55,7 +59,7 @@ func ExtractXBC1(reader io.Reader) (XBC1Header, []byte, error) {
 	return header, uncompressedDataBuffer.Bytes(), nil
 }
 
-func WriteXBC1(writer io.Writer, name [0x1C]byte, data []byte) error {
+func CompressToXBC1(name [0x1C]byte, data []byte) (XBC1, error) {
 	header := XBC1Header{
 		Magic:            XBC1_MAGIC,
 		NumFiles:         1,
@@ -64,21 +68,25 @@ func WriteXBC1(writer io.Writer, name [0x1C]byte, data []byte) error {
 	}
 
 	compressedDataBuffer := bytes.Buffer{}
-	zlibWriter := zlib.NewWriter(&compressedDataBuffer)
+	zlibWriter, err := zlib.NewWriterLevel(&compressedDataBuffer, XBC1_ZLIB_COMPRESSION_LEVEL)
+	if err != nil {
+		return nil, errors.New("Error creating zlib writer: " + err.Error())
+	}
 	if _, err := zlibWriter.Write(data); err != nil {
-		return errors.New("Error writing zlib data: " + err.Error())
+		return nil, errors.New("Error writing zlib data: " + err.Error())
 	}
 	if err := zlibWriter.Close(); err != nil {
-		return errors.New("Error closing zlib writer: " + err.Error())
+		return nil, errors.New("Error closing zlib writer: " + err.Error())
 	}
 
+	xbc1Buffer := bytes.Buffer{}
 	header.CompressedSize = uint32(compressedDataBuffer.Len())
-	if err := binary.Write(writer, furnace.TargetByteOrder, &header); err != nil {
-		return errors.New("Error writing xbc1 header: " + err.Error())
+	if err := binary.Write(&xbc1Buffer, furnace.TargetByteOrder, &header); err != nil {
+		return nil, errors.New("Error writing xbc1 header: " + err.Error())
 	}
-	if _, err := writer.Write(compressedDataBuffer.Bytes()); err != nil {
-		return errors.New("Error writing xbc1 data: " + err.Error())
+	if _, err := xbc1Buffer.Write(compressedDataBuffer.Bytes()); err != nil {
+		return nil, errors.New("Error writing xbc1 data: " + err.Error())
 	}
 
-	return nil
+	return xbc1Buffer.Bytes(), nil
 }

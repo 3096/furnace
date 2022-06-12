@@ -1,4 +1,4 @@
-package furnace
+package formats
 
 import (
 	"bytes"
@@ -19,6 +19,8 @@ type MSRDHeader struct {
 	MetaDataSize   uint32
 	MetaDataOffset uint32
 }
+
+type MSRDMetaData []byte
 
 type MSRDMetaDataHeader struct {
 	Tag      uint32
@@ -59,10 +61,18 @@ type MSRDFileItem struct {
 	Offset           uint32
 }
 
+type MSRDFile []byte
+
+const MSRD_FILE_ALIGN uint32 = 0x10
+
+const MSRD_FILE_INDEX_0 = 0
+const MSRD_FILE_INDEX_MIPS = 1
+const MSRD_FILE_INDEX_TEXTURE_START = 2
+
 type MSRD struct {
 	Header     MSRDHeader
-	MetaData   []byte
-	Files      [][]byte
+	MetaData   MSRDMetaData
+	Files      []MSRDFile
 	MetaHeader MSRDMetaDataHeader
 	DataItems  []MSRDDataItem
 }
@@ -77,7 +87,7 @@ func ReadMSRD(reader io.ReadSeeker) (MSRD, error) {
 	}
 
 	reader.Seek(int64(header.MetaDataOffset), io.SeekStart)
-	metaData := make([]byte, header.MetaDataSize)
+	metaData := make(MSRDMetaData, header.MetaDataSize)
 	if _, err := reader.Read(metaData); err != nil {
 		return MSRD{}, errors.New("Error reading msrd metadata: " + err.Error())
 	}
@@ -100,9 +110,9 @@ func ReadMSRD(reader io.ReadSeeker) (MSRD, error) {
 		return MSRD{}, errors.New("Error reading msrd file items: " + err.Error())
 	}
 
-	files := make([][]byte, metaHeader.FileCount)
+	files := (make([]MSRDFile, metaHeader.FileCount))
 	for i := range fileItems {
-		files[i] = make([]byte, fileItems[i].CompressedSize)
+		files[i] = make(MSRDFile, fileItems[i].CompressedSize)
 		reader.Seek(int64(fileItems[i].Offset), io.SeekStart)
 		if _, err := reader.Read(files[i]); err != nil {
 			return MSRD{}, errors.New("Error reading msrd file " + fmt.Sprint(i) + ": " + err.Error())
@@ -118,7 +128,7 @@ func ReadMSRD(reader io.ReadSeeker) (MSRD, error) {
 	}, nil
 }
 
-func writeMSRD(writer io.WriteSeeker, msrd MSRD) error {
+func WriteMSRD(writer io.WriteSeeker, msrd MSRD) error {
 	if err := binary.Write(utils.NewInPlaceWriter(msrd.MetaData, 0), furnace.TargetByteOrder, &msrd.MetaHeader); err != nil {
 		return errors.New("Error writing msrd meta header: " + err.Error())
 	}
@@ -155,5 +165,58 @@ func writeMSRD(writer io.WriteSeeker, msrd MSRD) error {
 			return errors.New("Error writing msrd file " + fmt.Sprint(i) + ": " + err.Error())
 		}
 	}
+	return nil
+}
+
+func (msrd *MSRD) SetFileData(index int, data []byte) {
+	msrd.Files[index] = append(data, make([]byte, MSRD_FILE_ALIGN-uint32(len(data))%MSRD_FILE_ALIGN)...)
+}
+
+func (msrd *MSRD) GetSplitMips() ([]MIBL, error) {
+	var mips []MIBL
+	_, jointMipsFile, err := ExtractXBC1(bytes.NewReader(msrd.Files[MSRD_FILE_INDEX_MIPS]))
+	if err != nil {
+		return nil, errors.New("Error extracting mips file: " + err.Error())
+	}
+	for _, dataItem := range msrd.DataItems {
+		if dataItem.Type == MSRD_DATA_ITEM_TYPE_TEXTURE {
+			mips = append(mips, MIBL(jointMipsFile[dataItem.Offset:dataItem.Offset+dataItem.Size]))
+		}
+	}
+	if len(mips) != int(msrd.MetaHeader.TextureIdsCount) {
+		return nil, errors.New("Invalid mips count")
+	}
+	return mips, nil
+}
+
+func (msrd *MSRD) SetMips(splitMips []MIBL) error {
+	if len(splitMips) != int(msrd.MetaHeader.TextureIdsCount) {
+		return errors.New("Invalid number of mips")
+	}
+
+	jointMipsMSRDFileContent := make(MSRDFile, 0)
+	mipsOffsets := []uint32{0}
+	for i, curMips := range splitMips {
+		jointMipsMSRDFileContent = append(jointMipsMSRDFileContent, curMips...)
+		mipsOffsets = append(mipsOffsets, mipsOffsets[i]+uint32(len(curMips)))
+	}
+	jointMipsMSRDFileHeader, err := ReadXBC1Header(bytes.NewReader(msrd.Files[MSRD_FILE_INDEX_MIPS]))
+	if err != nil {
+		return errors.New("Error reading mips header: " + err.Error())
+	}
+	jointMipsMSRDFileData, err := CompressToXBC1(jointMipsMSRDFileHeader.Name, jointMipsMSRDFileContent)
+	if err != nil {
+		return errors.New("Error writing mips file: " + err.Error())
+	}
+	msrd.SetFileData(MSRD_FILE_INDEX_MIPS, jointMipsMSRDFileData)
+
+	for i, dataItem := range msrd.DataItems {
+		if dataItem.Type == MSRD_DATA_ITEM_TYPE_TEXTURE {
+			textureIndex := dataItem.FileIndexPlusOne - 1 - MSRD_FILE_INDEX_TEXTURE_START
+			msrd.DataItems[i].Size = uint32(len(splitMips[textureIndex]))
+			msrd.DataItems[i].Offset = mipsOffsets[textureIndex]
+		}
+	}
+
 	return nil
 }

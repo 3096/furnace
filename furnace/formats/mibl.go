@@ -1,4 +1,4 @@
-package furnace
+package formats
 
 import (
 	"bytes"
@@ -32,6 +32,8 @@ type MIBLFooter struct {
 	Magic         uint32
 }
 
+type MIBL []byte
+
 type MIBLFormat uint32
 
 const (
@@ -49,7 +51,7 @@ func max(a, b uint32) uint32 {
 	return b
 }
 
-func GetMIBL(mipData [][]byte, width, height uint32, format dds.DXGIFormat) ([]byte, error) {
+func GetMIBL(mipData [][]byte, width, height uint32, format dds.DXGIFormat) (MIBL, error) {
 	MIBLFormat, found := DXGIFormatToMIBLFormat[format]
 	if !found {
 		return nil, errors.New("Unsupported DXGI format: %v" + fmt.Sprint(format))

@@ -48,13 +48,13 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 			continue
 		}
 
-		inTextureIndex, err := strconv.Atoi(
-			inTextureFileInfo.Name()[:strings.IndexRune(inTextureFileInfo.Name(), INDEX_SEPARATOR)])
+		inTextureId, err := strconv.Atoi(inTextureFileInfo.Name()[:strings.IndexRune(inTextureFileInfo.Name(), INDEX_SEPARATOR)])
 		if err != nil {
-			fmt.Printf("Skipping %s: no index found in filename\n", inTextureFileInfo.Name())
+			fmt.Printf("Skipping %s: no id number found in filename, please use <id.name.dds> naming format\n", inTextureFileInfo.Name())
 			continue
 		}
-		if inTextureIndex < 0 || inTextureIndex >= len(wismt.Files)-formats.MSRD_FILE_INDEX_TEXTURE_START {
+		inTextureIndex, found := wismt.TextureIdToIndexMap[uint16(inTextureId)]
+		if !found {
 			fmt.Printf("Skipping %s: index out of range\n", inTextureFileInfo.Name())
 			continue
 		}

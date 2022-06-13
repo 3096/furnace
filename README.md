@@ -23,6 +23,14 @@ wismt texture tool
 
     go run main.go <in wismt> <texture dir> <out wismt>
 
+Under `<texture dir>` you would place your replacement texture files. Currently the only supported texture format is BC7_UNORM.
+
+You must format your texture file names with <u><id.name.dds></u> (e.g. `00.PC079404_WAIST.dds`). The id will be used to identify the texture it replaces.
+
+Along side the `wismt` file, you also need the `wimdo` file placed in the same directory. Both files need to be modified for the replaced textures to function correctly in game.
+
+You can also replace using raw files by placing them in `<texture dir>/raw` directory, with filenames formatted in <u><index.whatever></u>.
+
 Example:
 
     go run main.go ./test/formats_testdata/wismt/pc079404.wismt ./test/commands_testdata/msrd-replaced-textures ./output.wismt

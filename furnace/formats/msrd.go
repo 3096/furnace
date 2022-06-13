@@ -70,11 +70,12 @@ const MSRD_FILE_INDEX_MIPS = 1
 const MSRD_FILE_INDEX_TEXTURE_START = 2
 
 type MSRD struct {
-	Header     MSRDHeader
-	MetaData   MSRDMetaData
-	Files      []MSRDFile
-	MetaHeader MSRDMetaDataHeader
-	DataItems  []MSRDDataItem
+	Header              MSRDHeader
+	MetaData            MSRDMetaData
+	Files               []MSRDFile
+	MetaHeader          MSRDMetaDataHeader
+	DataItems           []MSRDDataItem
+	TextureIdToIndexMap map[uint16]int
 }
 
 func ReadMSRD(reader io.ReadSeeker) (MSRD, error) {
@@ -119,12 +120,24 @@ func ReadMSRD(reader io.ReadSeeker) (MSRD, error) {
 		}
 	}
 
+	reader.Seek(int64(header.MetaDataOffset+metaHeader.TextureIdsOffset), io.SeekStart)
+	textureIds := make([]uint16, metaHeader.TextureIdsCount)
+	if err := binary.Read(reader, furnace.TargetByteOrder, &textureIds); err != nil {
+		return MSRD{}, errors.New("Error reading msrd texture ids: " + err.Error())
+	}
+
+	textureIdToIndexMap := make(map[uint16]int)
+	for i, id := range textureIds {
+		textureIdToIndexMap[id] = i
+	}
+
 	return MSRD{
-		Header:     header,
-		MetaData:   metaData,
-		MetaHeader: metaHeader,
-		DataItems:  dataItems,
-		Files:      files,
+		Header:              header,
+		MetaData:            metaData,
+		MetaHeader:          metaHeader,
+		DataItems:           dataItems,
+		Files:               files,
+		TextureIdToIndexMap: textureIdToIndexMap,
 	}, nil
 }
 

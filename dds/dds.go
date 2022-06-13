@@ -47,7 +47,16 @@ type DDSPixelFormat struct {
 	ABitMask    uint32
 }
 
-var SUPPORTED_FORMAT = [4]byte{'D', 'X', '1', '0'}
+var DX10_FORMAT = [4]byte{'D', 'X', '1', '0'}
+var NON_DX10_FORMAT_MAP = map[[4]byte]DXGIFormat{
+	{'D', 'X', 'T', '1'}: DXGI_FORMAT_BC1_UNORM,
+	{'D', 'X', 'T', '2'}: DXGI_FORMAT_BC2_UNORM,
+	{'D', 'X', 'T', '3'}: DXGI_FORMAT_BC2_UNORM,
+	{'D', 'X', 'T', '4'}: DXGI_FORMAT_BC3_UNORM,
+	{'D', 'X', 'T', '5'}: DXGI_FORMAT_BC3_UNORM,
+	{'A', 'T', 'I', '1'}: DXGI_FORMAT_BC4_UNORM,
+	{'A', 'T', 'I', '2'}: DXGI_FORMAT_BC5_UNORM,
+}
 
 func LoadDDS(ddsFileReader io.Reader) (DDSHeader, DDSHeaderDXT10, [][][]byte, error) {
 	byteOrder := utils.NativeByteOrder()
@@ -67,13 +76,18 @@ func LoadDDS(ddsFileReader io.Reader) (DDSHeader, DDSHeaderDXT10, [][][]byte, er
 	if header.Size != 124 {
 		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Invalid DDS file size: " + fmt.Sprint(header.Size))
 	}
-	if header.Dddpf.FourCC != SUPPORTED_FORMAT {
-		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Unsupported DDS format: " + fmt.Sprint(header.Dddpf.FourCC))
-	}
 
 	var headerDXT10 DDSHeaderDXT10
-	if err := binary.Read(ddsFileReader, byteOrder, &headerDXT10); err != nil {
-		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Error when reading dds file: " + err.Error())
+	if header.Dddpf.FourCC == DX10_FORMAT {
+		if err := binary.Read(ddsFileReader, byteOrder, &headerDXT10); err != nil {
+			return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Error when reading dds file: " + err.Error())
+		}
+	} else {
+		dxgiFormat, found := NON_DX10_FORMAT_MAP[header.Dddpf.FourCC]
+		if !found {
+			return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Invalid DDS file format: " + fmt.Sprint(header.Dddpf.FourCC))
+		}
+		headerDXT10.DxgiFormat = dxgiFormat
 	}
 
 	dxgiFormatInfo, dxgiFormatInfoSupported := DXGI_FORMAT_INFO_MAP[headerDXT10.DxgiFormat]
@@ -81,8 +95,12 @@ func LoadDDS(ddsFileReader io.Reader) (DDSHeader, DDSHeaderDXT10, [][][]byte, er
 		return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Unsupported DXGI format: " + fmt.Sprint(headerDXT10.DxgiFormat))
 	}
 
-	surfaces := make([][][]byte, headerDXT10.ArraySize)
-	for i := uint32(0); i < headerDXT10.ArraySize; i++ {
+	arraySize := headerDXT10.ArraySize
+	if arraySize == 0 {
+		arraySize = 1
+	}
+	surfaces := make([][][]byte, arraySize)
+	for i := uint32(0); i < arraySize; i++ {
 		surfaces[i] = make([][]byte, header.MipMapCount)
 		w := header.Width
 		h := header.Height

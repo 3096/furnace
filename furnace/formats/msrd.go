@@ -168,8 +168,8 @@ func WriteMSRD(writer io.WriteSeeker, msrd MSRD) error {
 	return nil
 }
 
-func (msrd *MSRD) SetFileData(index int, data []byte) {
-	msrd.Files[index] = append(data, make([]byte, MSRD_FILE_ALIGN-uint32(len(data))%MSRD_FILE_ALIGN)...)
+func (msrd *MSRD) SetFileData(index int, data XBC1) {
+	msrd.Files[index] = append([]byte(data), make([]byte, MSRD_FILE_ALIGN-uint32(len(data))%MSRD_FILE_ALIGN)...)
 }
 
 func (msrd *MSRD) GetSplitMips() ([]MIBL, error) {
@@ -194,17 +194,17 @@ func (msrd *MSRD) SetMips(splitMips []MIBL) error {
 		return errors.New("Invalid number of mips")
 	}
 
-	jointMipsMSRDFileContent := make(MSRDFile, 0)
+	jointMipsMSRDFileBuffer := bytes.NewBuffer(make([]byte, 0))
 	mipsOffsets := []uint32{0}
 	for i, curMips := range splitMips {
-		jointMipsMSRDFileContent = append(jointMipsMSRDFileContent, curMips...)
+		jointMipsMSRDFileBuffer.Write(curMips)
 		mipsOffsets = append(mipsOffsets, mipsOffsets[i]+uint32(len(curMips)))
 	}
 	jointMipsMSRDFileHeader, err := ReadXBC1Header(bytes.NewReader(msrd.Files[MSRD_FILE_INDEX_MIPS]))
 	if err != nil {
 		return errors.New("Error reading mips header: " + err.Error())
 	}
-	jointMipsMSRDFileData, err := CompressToXBC1(jointMipsMSRDFileHeader.Name, jointMipsMSRDFileContent)
+	jointMipsMSRDFileData, err := CompressToXBC1(jointMipsMSRDFileHeader.Name, jointMipsMSRDFileBuffer.Bytes())
 	if err != nil {
 		return errors.New("Error writing mips file: " + err.Error())
 	}

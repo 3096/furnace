@@ -16,8 +16,10 @@ import (
 )
 
 const INDEX_SEPARATOR = rune('.')
+const RAW_REPLACE_DIR = "raw"
 
 func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) error {
+	fmt.Printf("Reading wismt file: %s...\n", inWismtPath)
 	inWismtFile, err := os.Open(inWismtPath)
 	defer inWismtFile.Close()
 	if err != nil {
@@ -28,39 +30,74 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 		return err
 	}
 
+	fmt.Printf("Dispatching file read routines...\n")
+
 	inTextureDirFileInfos, err := ioutil.ReadDir(inTextureDir)
 	if err != nil {
 		return err
 	}
 
-	textureReadChan := make(chan *TextureReadResult, len(inTextureDirFileInfos))
+	rawReplaceDir := filepath.Join(inTextureDir, RAW_REPLACE_DIR)
+	inRawReplaceDirFileInfos, _ := ioutil.ReadDir(rawReplaceDir)
+
+	fileReadChan := make(chan *FileReadResult, len(inTextureDirFileInfos)+len(inRawReplaceDirFileInfos))
 	routinesRunning := 0
-	for _, inTextureDirFileInfo := range inTextureDirFileInfos {
-		if inTextureDirFileInfo.IsDir() {
+
+	for _, inTextureFileInfo := range inTextureDirFileInfos {
+		if inTextureFileInfo.IsDir() {
 			continue
 		}
 
 		inTextureIndex, err := strconv.Atoi(
-			inTextureDirFileInfo.Name()[:strings.IndexRune(inTextureDirFileInfo.Name(), INDEX_SEPARATOR)])
+			inTextureFileInfo.Name()[:strings.IndexRune(inTextureFileInfo.Name(), INDEX_SEPARATOR)])
 		if err != nil {
-			fmt.Printf("Skipping %s: no index found in filename\n", inTextureDirFileInfo.Name())
+			fmt.Printf("Skipping %s: no index found in filename\n", inTextureFileInfo.Name())
 			continue
 		}
 		if inTextureIndex < 0 || inTextureIndex >= len(wismt.Files)-formats.MSRD_FILE_INDEX_TEXTURE_START {
-			fmt.Printf("Skipping %s: index out of range\n", inTextureDirFileInfo.Name())
-			continue
-		}
-		xbc1Header, err := formats.ReadXBC1Header(bytes.NewReader(wismt.Files[formats.MSRD_FILE_INDEX_TEXTURE_START+inTextureIndex]))
-		if err != nil {
-			fmt.Printf("Skipping %s: %s\n", inTextureDirFileInfo.Name(), err)
+			fmt.Printf("Skipping %s: index out of range\n", inTextureFileInfo.Name())
 			continue
 		}
 
-		inTexturePath := filepath.Join(inTextureDir, inTextureDirFileInfo.Name())
-		go ReadTexture(inTexturePath, inTextureIndex, xbc1Header.Name, textureReadChan)
+		msrdFileIndex := formats.MSRD_FILE_INDEX_TEXTURE_START + inTextureIndex
+		xbc1Header, err := formats.ReadXBC1Header(bytes.NewReader(wismt.Files[msrdFileIndex]))
+		if err != nil {
+			fmt.Printf("Skipping %s: %s\n", inTextureFileInfo.Name(), err)
+			continue
+		}
+
+		inTexturePath := filepath.Join(inTextureDir, inTextureFileInfo.Name())
+		go ReadTexture(inTexturePath, msrdFileIndex, xbc1Header.Name, fileReadChan)
 		routinesRunning++
 	}
 
+	for _, inRawReplaceFileInfo := range inRawReplaceDirFileInfos {
+		if inRawReplaceFileInfo.IsDir() {
+			continue
+		}
+
+		inRawReplaceIndex, err := strconv.Atoi(
+			inRawReplaceFileInfo.Name()[:strings.IndexRune(inRawReplaceFileInfo.Name(), INDEX_SEPARATOR)])
+		if err != nil {
+			fmt.Printf("Skipping %s: no index found in filename\n", inRawReplaceFileInfo.Name())
+			continue
+		}
+		if inRawReplaceIndex < 0 || inRawReplaceIndex >= len(wismt.Files) {
+			fmt.Printf("Skipping %s: index out of range\n", inRawReplaceFileInfo.Name())
+			continue
+		}
+		xbc1Header, err := formats.ReadXBC1Header(bytes.NewReader(wismt.Files[inRawReplaceIndex]))
+		if err != nil {
+			fmt.Printf("Skipping %s: %s\n", inRawReplaceFileInfo.Name(), err)
+			continue
+		}
+
+		inRawReplacePath := filepath.Join(rawReplaceDir, inRawReplaceFileInfo.Name())
+		go ReadRaw(inRawReplacePath, inRawReplaceIndex, xbc1Header.Name, fileReadChan)
+		routinesRunning++
+	}
+
+	fmt.Printf("Reading wimdo file: %s...\n", outWismtPath)
 	inWimdoFile, err := os.Open(strings.TrimSuffix(inWismtPath, filepath.Ext(inWismtPath)) + ".wimdo")
 	defer inWimdoFile.Close()
 	if err != nil {
@@ -78,34 +115,39 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 		return errors.New("Could not find uncached textures offset in wimdo file")
 	}
 
+	fmt.Printf("Handling file reads...\n")
 	mipsMIBLs, err := wismt.GetSplitMips()
 	if err != nil {
 		return err
 	}
-
-	totalTexturesReplaced := 0
+	totalFilesReplaced := 0
 	for routinesRunning > 0 {
-		result := <-textureReadChan
+		result := <-fileReadChan
 		routinesRunning--
 		if result.Err != nil {
 			fmt.Printf("Skipped due to error - %s: %s\n", result.Err, result.Path)
 			continue
 		}
 
-		mipsMIBLs[result.TextureIndex] = result.MipsMIBL
-		wismt.SetFileData(formats.MSRD_FILE_INDEX_TEXTURE_START+result.TextureIndex, result.TextureData)
-		totalTexturesReplaced++
+		if result.MipsMIBL != nil {
+			mipsMIBLs[result.FileIndex-formats.MSRD_FILE_INDEX_TEXTURE_START] = result.MipsMIBL
+		}
+		wismt.SetFileData(result.FileIndex, result.CompressedData)
+		totalFilesReplaced++
+		fmt.Printf("Successfully placed %s\n", result.Path)
 	}
 
-	if totalTexturesReplaced == 0 {
-		return errors.New("No textures replaced")
+	if totalFilesReplaced == 0 {
+		return errors.New("No files replaced")
 	}
 
+	fmt.Printf("Saving mipmaps to file%d...\n", formats.MSRD_FILE_INDEX_MIPS)
 	err = wismt.SetMips(mipsMIBLs)
 	if err != nil {
 		return err
 	}
 
+	fmt.Printf("Saving wismt file: %s...\n", outWismtPath)
 	outWismtFile, err := os.Create(outWismtPath)
 	defer outWismtFile.Close()
 	if err != nil {
@@ -116,8 +158,10 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 		return err
 	}
 
+	outWimdoPath := strings.TrimSuffix(outWismtPath, filepath.Ext(outWismtPath)) + ".wimdo"
+	fmt.Printf("Saving wimdo file: %s...\n", outWimdoPath)
 	copy(wimdo[wimdoHeader.UncachedTexturesOffset:], formats.MXMD(wismt.MetaData))
-	outWimdoFile, err := os.Create(strings.TrimSuffix(outWismtPath, filepath.Ext(outWismtPath)) + ".wimdo")
+	outWimdoFile, err := os.Create(outWimdoPath)
 	defer outWimdoFile.Close()
 	if err != nil {
 		return err
@@ -127,49 +171,69 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 		return err
 	}
 
-	fmt.Printf("Done: replaced %d textures, output: %s\n", totalTexturesReplaced, outWismtPath)
+	fmt.Printf("Done: replaced %d files, output: %s\n", totalFilesReplaced, outWismtPath)
 	return nil
 }
 
-type TextureReadResult struct {
-	Err          error
-	Path         string
-	TextureIndex int
-	TextureData  formats.XBC1
-	MipsMIBL     formats.MIBL
+type FileReadResult struct {
+	Err            error
+	Path           string
+	FileIndex      int
+	CompressedData formats.XBC1
+	MipsMIBL       formats.MIBL
 }
 
-func ReadTexture(texturePath string, index int, xbc1Name [0x1C]byte, channel chan *TextureReadResult) {
+func ReadTexture(texturePath string, index int, xbc1Name [0x1C]byte, channel chan *FileReadResult) {
 	textureFile, err := os.Open(texturePath)
 	defer textureFile.Close()
 	if err != nil {
-		channel <- &TextureReadResult{Err: err, Path: texturePath}
+		channel <- &FileReadResult{Err: err, Path: texturePath}
 		return
 	}
 
 	ddsHeader, ddsHeaderDXT10, mips, err := dds.LoadDDS(textureFile)
 	if err != nil {
-		channel <- &TextureReadResult{Err: err, Path: texturePath}
+		channel <- &FileReadResult{Err: err, Path: texturePath}
 		return
 	}
 	if len(mips[0]) <= 1 {
-		channel <- &TextureReadResult{Err: errors.New("missing mipmaps"), Path: texturePath}
+		channel <- &FileReadResult{Err: errors.New("missing mipmaps"), Path: texturePath}
 		return
 	}
 
 	compressedTextureData, err := formats.CompressToXBC1(xbc1Name,
 		furnace.GetSwizzled(mips[0][0], ddsHeader.Width, ddsHeader.Height, ddsHeaderDXT10.DxgiFormat))
 	if err != nil {
-		channel <- &TextureReadResult{Err: err, Path: texturePath}
+		channel <- &FileReadResult{Err: err, Path: texturePath}
 		return
 	}
 
 	mipsMIBL, err := formats.GetMIBL(mips[0], ddsHeader.Width, ddsHeader.Height, ddsHeaderDXT10.DxgiFormat)
 
-	channel <- &TextureReadResult{
-		Path:         texturePath,
-		TextureIndex: index,
-		TextureData:  compressedTextureData,
-		MipsMIBL:     mipsMIBL,
+	channel <- &FileReadResult{
+		Path:           texturePath,
+		FileIndex:      index,
+		CompressedData: compressedTextureData,
+		MipsMIBL:       mipsMIBL,
+	}
+}
+
+func ReadRaw(rawPath string, index int, xbc1Name [0x1C]byte, channel chan *FileReadResult) {
+	data, err := ioutil.ReadFile(rawPath)
+	if err != nil {
+		channel <- &FileReadResult{Err: err, Path: rawPath}
+		return
+	}
+
+	compressedData, err := formats.CompressToXBC1(xbc1Name, data)
+	if err != nil {
+		channel <- &FileReadResult{Err: err, Path: rawPath}
+		return
+	}
+
+	channel <- &FileReadResult{
+		Path:           rawPath,
+		FileIndex:      index,
+		CompressedData: compressedData,
 	}
 }

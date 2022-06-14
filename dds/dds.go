@@ -105,8 +105,11 @@ func LoadDDS(ddsFileReader io.Reader) (DDSHeader, DDSHeaderDXT10, [][][]byte, er
 		w := header.Width
 		h := header.Height
 		for mipmapLevel := 0; mipmapLevel < int(header.MipMapCount); mipmapLevel++ {
-			if w == 0 || h == 0 {
-				return DDSHeader{}, DDSHeaderDXT10{}, nil, errors.New("Invalid DDS file: width or height reaches 0 at surface " + fmt.Sprint(i) + " mipmap " + fmt.Sprint(mipmapLevel))
+			if w == 0 {
+				w = 1
+			}
+			if h == 0 {
+				h = 1
 			}
 			blockWidth := utils.Align(w, dxgiFormatInfo.BlockSideLen) / dxgiFormatInfo.BlockSideLen
 			blockHeight := utils.Align(h, dxgiFormatInfo.BlockSideLen) / dxgiFormatInfo.BlockSideLen

@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/3096/furnace/dds"
 	"github.com/3096/furnace/furnace/formats"
 	"github.com/3096/furnace/utils"
 )
@@ -86,6 +87,36 @@ func TestMSRDMips(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = formats.WriteMSRD(msrdFileOut, msrd)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMIBL(t *testing.T) {
+	miblTestTexturePath := "formats_testdata/mibl/03.PC060000_KIZU_ALP.dds"
+	miblOutFilePath := "formats_testdata/test-out/mibl/03.PC060000_KIZU_ALP.mibl"
+	err := utils.EnsureDirectory(miblOutFilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	miblTestTextureFile, err := os.Open(miblTestTexturePath)
+	defer miblTestTextureFile.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	header, headerDX10, textures, err := dds.LoadDDS(miblTestTextureFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mibl, err := formats.NewMIBL(textures[0], header.Width, header.Height, headerDX10.DxgiFormat, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = ioutil.WriteFile(miblOutFilePath, mibl, 0644)
 	if err != nil {
 		t.Fatal(err)
 	}

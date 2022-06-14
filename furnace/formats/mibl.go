@@ -63,18 +63,23 @@ func max(a, b uint32) uint32 {
 	return b
 }
 
-func GetMIBL(mipData [][]byte, width, height uint32, format dds.DXGIFormat) (MIBL, error) {
-	MIBLFormat, found := DXGIFormatToMIBLFormat[format]
+func NewMIBL(mipData [][]byte, width, height uint32, format dds.DXGIFormat, startingIndex int) (MIBL, error) {
+	miblFormat, found := DXGIFormatToMIBLFormat[format]
 	if !found {
 		return nil, errors.New("Unsupported DXGI format: " + fmt.Sprint(format))
 	}
-	formatInfo := dds.DXGI_FORMAT_INFO_MAP[format]
 
+	formatInfo := dds.DXGI_FORMAT_INFO_MAP[format]
 	bytesPerBlock := formatInfo.BitsPerPixel * formatInfo.BlockSideLen * formatInfo.BlockSideLen / 8
 	miblBuffer := bytes.Buffer{}
-	curMipWidth := width
-	curMipHeight := height
-	for i := 1; i < len(mipData); i++ {
+
+	if startingIndex < 0 || startingIndex >= len(mipData) {
+		return nil, errors.New("Invalid starting index: " + fmt.Sprint(startingIndex))
+	}
+	curMipWidth := width >> startingIndex << 1
+	curMipHeight := height >> startingIndex << 1
+
+	for i := startingIndex; i < len(mipData); i++ {
 		curMipWidth /= 2
 		curMipHeight /= 2
 		adjustedWidth := utils.Align(max(curMipWidth, MIBL_MIN_WIDTH), formatInfo.BlockSideLen)
@@ -99,12 +104,12 @@ func GetMIBL(mipData [][]byte, width, height uint32, format dds.DXGIFormat) (MIB
 	miblFooter := MIBLFooter{
 		DataSize:      utils.Align(uint32(miblBuffer.Len())+uint32(unsafe.Sizeof(MIBLFooter{})), MIBL_ALIGN_SIZE),
 		AlignSize:     MIBL_ALIGN_SIZE,
-		Width:         width / 2,
-		Height:        height / 2,
+		Width:         width >> startingIndex,
+		Height:        height >> startingIndex,
 		LastMipWidth:  curMipWidth,
 		LastMipHeight: curMipHeight,
-		Format:        MIBLFormat,
-		MipCount:      uint32(len(mipData) - 1),
+		Format:        miblFormat,
+		MipCount:      uint32(len(mipData) - startingIndex),
 		Version:       MIBL_VERSION,
 		Magic:         MIBL_MAGIC,
 	}

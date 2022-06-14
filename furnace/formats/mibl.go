@@ -37,21 +37,23 @@ type MIBL []byte
 type MIBLFormat uint32
 
 const (
-	MIBL_FORMAT_BC1_UNORM MIBLFormat = 66
-	MIBL_FORMAT_BC2_UNORM MIBLFormat = 67
-	MIBL_FORMAT_BC3_UNORM MIBLFormat = 68
-	MIBL_FORMAT_BC4_UNORM MIBLFormat = 73
-	MIBL_FORMAT_BC5_UNORM MIBLFormat = 75
-	MIBL_FORMAT_BC7_UNORM MIBLFormat = 77
+	MIBL_FORMAT_R8G8B8A8_UNORM            = 37
+	MIBL_FORMAT_BC1_UNORM      MIBLFormat = 66
+	MIBL_FORMAT_BC2_UNORM      MIBLFormat = 67
+	MIBL_FORMAT_BC3_UNORM      MIBLFormat = 68
+	MIBL_FORMAT_BC4_UNORM      MIBLFormat = 73
+	MIBL_FORMAT_BC5_UNORM      MIBLFormat = 75
+	MIBL_FORMAT_BC7_UNORM      MIBLFormat = 77
 )
 
 var DXGIFormatToMIBLFormat = map[dds.DXGIFormat]MIBLFormat{
-	dds.DXGI_FORMAT_BC1_UNORM: MIBL_FORMAT_BC1_UNORM,
-	dds.DXGI_FORMAT_BC2_UNORM: MIBL_FORMAT_BC2_UNORM,
-	dds.DXGI_FORMAT_BC3_UNORM: MIBL_FORMAT_BC3_UNORM,
-	dds.DXGI_FORMAT_BC4_UNORM: MIBL_FORMAT_BC4_UNORM,
-	dds.DXGI_FORMAT_BC5_UNORM: MIBL_FORMAT_BC5_UNORM,
-	dds.DXGI_FORMAT_BC7_UNORM: MIBL_FORMAT_BC7_UNORM,
+	dds.DXGI_FORMAT_R8G8B8A8_UNORM: MIBL_FORMAT_R8G8B8A8_UNORM,
+	dds.DXGI_FORMAT_BC1_UNORM:      MIBL_FORMAT_BC1_UNORM,
+	dds.DXGI_FORMAT_BC2_UNORM:      MIBL_FORMAT_BC2_UNORM,
+	dds.DXGI_FORMAT_BC3_UNORM:      MIBL_FORMAT_BC3_UNORM,
+	dds.DXGI_FORMAT_BC4_UNORM:      MIBL_FORMAT_BC4_UNORM,
+	dds.DXGI_FORMAT_BC5_UNORM:      MIBL_FORMAT_BC5_UNORM,
+	dds.DXGI_FORMAT_BC7_UNORM:      MIBL_FORMAT_BC7_UNORM,
 }
 
 func max(a, b uint32) uint32 {
@@ -64,7 +66,7 @@ func max(a, b uint32) uint32 {
 func GetMIBL(mipData [][]byte, width, height uint32, format dds.DXGIFormat) (MIBL, error) {
 	MIBLFormat, found := DXGIFormatToMIBLFormat[format]
 	if !found {
-		return nil, errors.New("Unsupported DXGI format: %v" + fmt.Sprint(format))
+		return nil, errors.New("Unsupported DXGI format: " + fmt.Sprint(format))
 	}
 	formatInfo := dds.DXGI_FORMAT_INFO_MAP[format]
 

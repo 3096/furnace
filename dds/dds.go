@@ -49,6 +49,7 @@ type DDSPixelFormat struct {
 
 var DX10_FORMAT = [4]byte{'D', 'X', '1', '0'}
 var NON_DX10_FORMAT_MAP = map[[4]byte]DXGIFormat{
+	{0, 0, 0, 0}:         DXGI_FORMAT_R8G8B8A8_UNORM,
 	{'D', 'X', 'T', '1'}: DXGI_FORMAT_BC1_UNORM,
 	{'D', 'X', 'T', '2'}: DXGI_FORMAT_BC2_UNORM,
 	{'D', 'X', 'T', '3'}: DXGI_FORMAT_BC2_UNORM,
@@ -261,6 +262,11 @@ type DxgiFormatInfo struct {
 }
 
 var DXGI_FORMAT_INFO_MAP = map[DXGIFormat]DxgiFormatInfo{
+	DXGI_FORMAT_R8G8B8A8_UNORM: {
+		Name:         "R8G8B8A8_UNORM",
+		BitsPerPixel: 32,
+		BlockSideLen: 1,
+	},
 	DXGI_FORMAT_BC1_UNORM: {
 		Name:         "BC1_UNORM",
 		BitsPerPixel: 4,

@@ -209,6 +209,10 @@ func ReadTexture(texturePath string, index int, xbc1Name [0x1C]byte, channel cha
 	}
 
 	mipsMIBL, err := formats.GetMIBL(mips[0], ddsHeader.Width, ddsHeader.Height, ddsHeaderDXT10.DxgiFormat)
+	if err != nil {
+		channel <- &FileReadResult{Err: err, Path: texturePath}
+		return
+	}
 
 	channel <- &FileReadResult{
 		Path:           texturePath,

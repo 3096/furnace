@@ -15,7 +15,7 @@ func GetSwizzled(data []byte, width, height uint32, format dds.DXGIFormat) []byt
 	widthBlocks := utils.Align(width, formatInfo.BlockSideLen) / formatInfo.BlockSideLen
 	heightBlocks := utils.Align(height, formatInfo.BlockSideLen) / formatInfo.BlockSideLen
 	xBitsShift := 3
-	for i := uint32(0); i < formatInfo.BlockSideLen; i++ {
+	for i := uint32(0); i < 4; i++ {
 		if ((heightBlocks - 1) & (8 << i)) != 0 {
 			xBitsShift += 1
 		}

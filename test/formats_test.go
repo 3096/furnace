@@ -92,6 +92,44 @@ func TestMSRDMips(t *testing.T) {
 	}
 }
 
+func TestMSRDTextureCache(t *testing.T) {
+	msrdTestFilePath := "formats_testdata/wismt/pc079404.wismt"
+	msrdOutFilePath := "formats_testdata/test-out/msrd-texture-cache/pc079404.wismt"
+	err := utils.EnsureDirectory(msrdOutFilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msrdFileIn, err := os.Open(msrdTestFilePath)
+	defer msrdFileIn.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	msrd, err := formats.ReadMSRD(msrdFileIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cachedTextures, err := msrd.GetCachedTextures()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = msrd.SetCachedTextures(cachedTextures)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msrdFileOut, err := os.Create(msrdOutFilePath)
+	defer msrdFileOut.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = formats.WriteMSRD(msrdFileOut, msrd)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMIBL(t *testing.T) {
 	miblTestTexturePath := "formats_testdata/mibl/03.PC060000_KIZU_ALP.dds"
 	miblOutFilePath := "formats_testdata/test-out/mibl/03.PC060000_KIZU_ALP.mibl"

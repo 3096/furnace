@@ -33,26 +33,26 @@ type MSRDMetaDataHeader struct {
 
 	Unk1 [0x1C]byte
 
-	TextureIdsCount    uint32
-	TextureIdsOffset   uint32
-	TextureCountOffset uint32
+	TextureIdsCount   uint32
+	TextureIdsOffset  uint32
+	TextureInfoOffset uint32
 }
 
 type MSRDDataItem struct {
 	Offset           uint32
 	Size             uint32
 	FileIndexPlusOne uint16
-	Type             MSRDDataItemTypes
+	Type             MSRDDataItemType
 	Unk              [8]byte
 }
 
-type MSRDDataItemTypes uint16
+type MSRDDataItemType uint16
 
 const (
-	MSRD_DATA_ITEM_TYPE_MODEL        = 0
-	MSRD_DATA_ITEM_TYPE_SHADERBUNDLE = 1
-	MSRD_DATA_ITEM_TYPE_TEXTURECACHE = 2
-	MSRD_DATA_ITEM_TYPE_TEXTURE      = 3
+	MSRD_DATA_ITEM_TYPE_MODEL        MSRDDataItemType = 0
+	MSRD_DATA_ITEM_TYPE_SHADERBUNDLE MSRDDataItemType = 1
+	MSRD_DATA_ITEM_TYPE_TEXTURECACHE MSRDDataItemType = 2
+	MSRD_DATA_ITEM_TYPE_TEXTURE      MSRDDataItemType = 3
 )
 
 type MSRDFileItem struct {
@@ -61,21 +61,35 @@ type MSRDFileItem struct {
 	Offset           uint32
 }
 
-type MSRDFile []byte
-
 const MSRD_FILE_ALIGN uint32 = 0x10
 
 const MSRD_FILE_INDEX_0 = 0
 const MSRD_FILE_INDEX_MIPS = 1
 const MSRD_FILE_INDEX_TEXTURE_START = 2
 
+type MSRDTextureInfoHeader struct {
+	TextureCount       uint32
+	TextureBlockSize   uint32
+	Unk                uint32
+	TextureNamesOffset uint32
+}
+
+type MSRDTextureInfoItem struct {
+	Unk         [4]byte
+	CacheSize   uint32
+	CacheOffset uint32
+	NameOffset  uint32
+}
+
 type MSRD struct {
 	Header              MSRDHeader
 	MetaData            MSRDMetaData
-	Files               []MSRDFile
+	CompressedFiles     []XBC1
 	MetaHeader          MSRDMetaDataHeader
 	DataItems           []MSRDDataItem
 	TextureIdToIndexMap map[uint16]int
+	TextureInfoHeader   MSRDTextureInfoHeader
+	TextureInfoItems    []MSRDTextureInfoItem
 }
 
 func ReadMSRD(reader io.ReadSeeker) (MSRD, error) {
@@ -111,11 +125,11 @@ func ReadMSRD(reader io.ReadSeeker) (MSRD, error) {
 		return MSRD{}, errors.New("Error reading msrd file items: " + err.Error())
 	}
 
-	files := (make([]MSRDFile, metaHeader.FileCount))
+	compressedFiles := (make([]XBC1, metaHeader.FileCount))
 	for i := range fileItems {
-		files[i] = make(MSRDFile, fileItems[i].CompressedSize)
+		compressedFiles[i] = make(XBC1, fileItems[i].CompressedSize)
 		reader.Seek(int64(fileItems[i].Offset), io.SeekStart)
-		if _, err := reader.Read(files[i]); err != nil {
+		if _, err := reader.Read(compressedFiles[i]); err != nil {
 			return MSRD{}, errors.New("Error reading msrd file " + fmt.Sprint(i) + ": " + err.Error())
 		}
 	}
@@ -131,17 +145,33 @@ func ReadMSRD(reader io.ReadSeeker) (MSRD, error) {
 		textureIdToIndexMap[id] = i
 	}
 
+	textureInfoHeader := MSRDTextureInfoHeader{}
+	reader.Seek(int64(header.MetaDataOffset+metaHeader.TextureInfoOffset), io.SeekStart)
+	if err := binary.Read(reader, furnace.TargetByteOrder, &textureInfoHeader); err != nil {
+		return MSRD{}, errors.New("Error reading msrd texture info header: " + err.Error())
+	}
+
+	textureInfoItems := make([]MSRDTextureInfoItem, textureInfoHeader.TextureCount)
+	if err := binary.Read(reader, furnace.TargetByteOrder, &textureInfoItems); err != nil {
+		return MSRD{}, errors.New("Error reading msrd texture info items: " + err.Error())
+	}
+
 	return MSRD{
 		Header:              header,
 		MetaData:            metaData,
 		MetaHeader:          metaHeader,
 		DataItems:           dataItems,
-		Files:               files,
+		CompressedFiles:     compressedFiles,
 		TextureIdToIndexMap: textureIdToIndexMap,
+		TextureInfoHeader:   textureInfoHeader,
+		TextureInfoItems:    textureInfoItems,
 	}, nil
 }
 
 func WriteMSRD(writer io.WriteSeeker, msrd MSRD) error {
+	// I wrote this assuming the data size of metadata won't change...
+	// if the need arises, however, it might need some overhaul
+
 	if err := binary.Write(utils.NewInPlaceWriter(msrd.MetaData, 0), furnace.TargetByteOrder, &msrd.MetaHeader); err != nil {
 		return errors.New("Error writing msrd meta header: " + err.Error())
 	}
@@ -152,19 +182,27 @@ func WriteMSRD(writer io.WriteSeeker, msrd MSRD) error {
 
 	fileItemsWriter := utils.NewInPlaceWriter(msrd.MetaData, int(msrd.MetaHeader.FileTableOffset))
 	curFileOffset := msrd.Header.MetaDataOffset + msrd.Header.MetaDataSize
-	for i := range msrd.Files {
-		xbc1Header, err := ReadXBC1Header(bytes.NewReader(msrd.Files[i]))
+	for i := range msrd.CompressedFiles {
+		xbc1Header, err := ReadXBC1Header(bytes.NewReader(msrd.CompressedFiles[i]))
 		if err != nil {
 			return errors.New("Error reading xbc1 header: " + err.Error())
 		}
 		if err := binary.Write(fileItemsWriter, furnace.TargetByteOrder, &MSRDFileItem{
-			CompressedSize:   uint32(len(msrd.Files[i])),
+			CompressedSize:   uint32(len(msrd.CompressedFiles[i])),
 			UncompressedSize: xbc1Header.UncompressedSize,
 			Offset:           curFileOffset,
 		}); err != nil {
 			return errors.New("Error writing msrd file items: " + err.Error())
 		}
-		curFileOffset += uint32(len(msrd.Files[i]))
+		curFileOffset += uint32(len(msrd.CompressedFiles[i]))
+	}
+
+	textureInfoWriter := utils.NewInPlaceWriter(msrd.MetaData, int(msrd.MetaHeader.TextureInfoOffset))
+	if err := binary.Write(textureInfoWriter, furnace.TargetByteOrder, &msrd.TextureInfoHeader); err != nil {
+		return errors.New("Error writing msrd texture info header: " + err.Error())
+	}
+	if err := binary.Write(textureInfoWriter, furnace.TargetByteOrder, &msrd.TextureInfoItems); err != nil {
+		return errors.New("Error writing msrd texture info items: " + err.Error())
 	}
 
 	if err := binary.Write(writer, furnace.TargetByteOrder, &msrd.Header); err != nil {
@@ -173,21 +211,31 @@ func WriteMSRD(writer io.WriteSeeker, msrd MSRD) error {
 	if _, err := writer.Write(msrd.MetaData); err != nil {
 		return errors.New("Error writing msrd metadata: " + err.Error())
 	}
-	for i := range msrd.Files {
-		if _, err := writer.Write(msrd.Files[i]); err != nil {
+	for i := range msrd.CompressedFiles {
+		if _, err := writer.Write(msrd.CompressedFiles[i]); err != nil {
 			return errors.New("Error writing msrd file " + fmt.Sprint(i) + ": " + err.Error())
 		}
 	}
 	return nil
 }
 
-func (msrd *MSRD) SetFileData(index int, data XBC1) {
-	msrd.Files[index] = append([]byte(data), make([]byte, MSRD_FILE_ALIGN-uint32(len(data))%MSRD_FILE_ALIGN)...)
+func (msrd *MSRD) GetDataItemsByType(dataItemType MSRDDataItemType) []MSRDDataItem {
+	var result []MSRDDataItem
+	for _, item := range msrd.DataItems {
+		if item.Type == dataItemType {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func (msrd *MSRD) SetCompressedFileData(index int, data XBC1) {
+	msrd.CompressedFiles[index] = append([]byte(data), make([]byte, MSRD_FILE_ALIGN-uint32(len(data))%MSRD_FILE_ALIGN)...)
 }
 
 func (msrd *MSRD) GetSplitMips() ([]MIBL, error) {
 	var mips []MIBL
-	_, jointMipsFile, err := ExtractXBC1(bytes.NewReader(msrd.Files[MSRD_FILE_INDEX_MIPS]))
+	_, jointMipsFile, err := ExtractXBC1(bytes.NewReader(msrd.CompressedFiles[MSRD_FILE_INDEX_MIPS]))
 	if err != nil {
 		return nil, errors.New("Error extracting mips file: " + err.Error())
 	}
@@ -213,7 +261,7 @@ func (msrd *MSRD) SetMips(splitMips []MIBL) error {
 		jointMipsMSRDFileBuffer.Write(curMips)
 		mipsOffsets = append(mipsOffsets, mipsOffsets[i]+uint32(len(curMips)))
 	}
-	jointMipsMSRDFileHeader, err := ReadXBC1Header(bytes.NewReader(msrd.Files[MSRD_FILE_INDEX_MIPS]))
+	jointMipsMSRDFileHeader, err := ReadXBC1Header(bytes.NewReader(msrd.CompressedFiles[MSRD_FILE_INDEX_MIPS]))
 	if err != nil {
 		return errors.New("Error reading mips header: " + err.Error())
 	}
@@ -221,7 +269,7 @@ func (msrd *MSRD) SetMips(splitMips []MIBL) error {
 	if err != nil {
 		return errors.New("Error writing mips file: " + err.Error())
 	}
-	msrd.SetFileData(MSRD_FILE_INDEX_MIPS, jointMipsMSRDFileData)
+	msrd.SetCompressedFileData(MSRD_FILE_INDEX_MIPS, jointMipsMSRDFileData)
 
 	for i, dataItem := range msrd.DataItems {
 		if dataItem.Type == MSRD_DATA_ITEM_TYPE_TEXTURE {
@@ -230,6 +278,67 @@ func (msrd *MSRD) SetMips(splitMips []MIBL) error {
 			msrd.DataItems[i].Offset = mipsOffsets[textureIndex]
 		}
 	}
+
+	return nil
+}
+
+func (msrd *MSRD) GetCachedTextures() ([]MIBL, error) {
+	var textures []MIBL
+
+	cachedTextureDataItems := msrd.GetDataItemsByType(MSRD_DATA_ITEM_TYPE_TEXTURECACHE)
+	if len(cachedTextureDataItems) != 1 {
+		return nil, errors.New("Invalid number of cached texture data items")
+	}
+	cachedTextureDataOffset := cachedTextureDataItems[0].Offset
+
+	_, file0Content, err := ExtractXBC1(bytes.NewReader(msrd.CompressedFiles[MSRD_FILE_INDEX_0]))
+	if err != nil {
+		return nil, errors.New("Error extracting file 0: " + err.Error())
+	}
+
+	for _, textureInfoItem := range msrd.TextureInfoItems {
+		textureCacheOffset := cachedTextureDataOffset + textureInfoItem.CacheOffset
+		textures = append(textures, MIBL(file0Content[textureCacheOffset:textureCacheOffset+textureInfoItem.CacheSize]))
+	}
+
+	return textures, nil
+}
+
+func (msrd *MSRD) SetCachedTextures(textures []MIBL) error {
+	if len(textures) != int(msrd.TextureInfoHeader.TextureCount) {
+		return errors.New("Invalid number of textures")
+	}
+
+	file0XBC1Header, file0Content, err := ExtractXBC1(bytes.NewReader(msrd.CompressedFiles[MSRD_FILE_INDEX_0]))
+	if err != nil {
+		return errors.New("Error extracting file 0: " + err.Error())
+	}
+
+	cachedTextureDataItems := msrd.GetDataItemsByType(MSRD_DATA_ITEM_TYPE_TEXTURECACHE)
+	if len(cachedTextureDataItems) != 1 {
+		return errors.New("Invalid number of cached texture data items")
+	}
+	cachedTextureDataOffset := cachedTextureDataItems[0].Offset
+	if int(cachedTextureDataOffset+cachedTextureDataItems[0].Size) != len(file0Content) {
+		// I'm assuming texture cache is at the end of file 0 cuz I'm feeling lazy
+		// if it's not, this should catch it
+		return errors.New("Additional data after texture cache detected in file 0, unsupported")
+	}
+
+	textureCacheWriter := utils.NewInPlaceWriter(file0Content, int(cachedTextureDataOffset))
+	curTextureCacheOffset := uint32(0)
+	for i, curTexture := range textures {
+		msrd.TextureInfoItems[i].CacheOffset = curTextureCacheOffset
+		msrd.TextureInfoItems[i].CacheSize = uint32(len(curTexture))
+		textureCacheWriter.Write(curTexture)
+		curTextureCacheOffset += uint32(len(curTexture))
+	}
+
+	file0Compressed, err := CompressToXBC1(file0XBC1Header.Name, file0Content)
+	if err != nil {
+		return errors.New("Error writing file 0: " + err.Error())
+	}
+	msrd.SetCompressedFileData(MSRD_FILE_INDEX_0, file0Compressed)
 
 	return nil
 }

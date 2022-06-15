@@ -60,7 +60,7 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 		}
 
 		msrdFileIndex := formats.MSRD_FILE_INDEX_TEXTURE_START + inTextureIndex
-		xbc1Header, err := formats.ReadXBC1Header(bytes.NewReader(wismt.Files[msrdFileIndex]))
+		xbc1Header, err := formats.ReadXBC1Header(bytes.NewReader(wismt.CompressedFiles[msrdFileIndex]))
 		if err != nil {
 			fmt.Printf("Skipping %s: %s\n", inTextureFileInfo.Name(), err)
 			continue
@@ -82,11 +82,11 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 			fmt.Printf("Skipping %s: no index found in filename\n", inRawReplaceFileInfo.Name())
 			continue
 		}
-		if inRawReplaceIndex < 0 || inRawReplaceIndex >= len(wismt.Files) {
+		if inRawReplaceIndex < 0 || inRawReplaceIndex >= len(wismt.CompressedFiles) {
 			fmt.Printf("Skipping %s: index out of range\n", inRawReplaceFileInfo.Name())
 			continue
 		}
-		xbc1Header, err := formats.ReadXBC1Header(bytes.NewReader(wismt.Files[inRawReplaceIndex]))
+		xbc1Header, err := formats.ReadXBC1Header(bytes.NewReader(wismt.CompressedFiles[inRawReplaceIndex]))
 		if err != nil {
 			fmt.Printf("Skipping %s: %s\n", inRawReplaceFileInfo.Name(), err)
 			continue
@@ -132,7 +132,7 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 		if result.MipsMIBL != nil {
 			mipsMIBLs[result.FileIndex-formats.MSRD_FILE_INDEX_TEXTURE_START] = result.MipsMIBL
 		}
-		wismt.SetFileData(result.FileIndex, result.CompressedData)
+		wismt.SetCompressedFileData(result.FileIndex, result.CompressedData)
 		totalFilesReplaced++
 		fmt.Printf("Successfully placed %s\n", result.Path)
 	}

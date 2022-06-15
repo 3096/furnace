@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/binary"
+	"errors"
 	"os"
 	"path"
 	"unsafe"
@@ -35,6 +36,9 @@ func NewInPlaceWriter(buf []byte, off int) *InPlaceWriter {
 }
 
 func (w *InPlaceWriter) Write(p []byte) (n int, err error) {
+	if w.off+len(p) > len(w.buf) {
+		return 0, errors.New("Cannot write past end of buffer using InPlaceWriter")
+	}
 	copy(w.buf[w.off:], p)
 	w.off += len(p)
 	return len(p), nil

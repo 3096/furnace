@@ -118,3 +118,15 @@ func NewMIBL(mipData [][]byte, width, height uint32, format dds.DXGIFormat, star
 
 	return miblBuffer.Bytes(), nil
 }
+
+func (mibl *MIBL) GetFooter() (MIBLFooter, error) {
+	if len(*mibl) < int(unsafe.Sizeof(MIBLFooter{})) {
+		return MIBLFooter{}, errors.New("Invalid MIBL length")
+	}
+	var footer MIBLFooter
+	err := binary.Read(bytes.NewReader((*mibl)[len(*mibl)-int(unsafe.Sizeof(MIBLFooter{})):]), furnace.TargetByteOrder, &footer)
+	if err != nil {
+		return MIBLFooter{}, err
+	}
+	return footer, nil
+}

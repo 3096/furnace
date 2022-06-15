@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 
 const INDEX_SEPARATOR = rune('.')
 const RAW_REPLACE_DIR = "raw"
+const FILE_INDEX_NO_ENTRY = -1
 
 func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) error {
 	fmt.Printf("Reading wismt file: %s...\n", inWismtPath)
@@ -26,6 +28,10 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 		return err
 	}
 	wismt, err := formats.ReadMSRD(inWismtFile)
+	if err != nil {
+		return err
+	}
+	wismtCachedTextures, err := wismt.GetCachedTextures()
 	if err != nil {
 		return err
 	}
@@ -53,21 +59,28 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 			fmt.Printf("Skipping %s: no id number found in filename, please use <id.name.dds> naming format\n", inTextureFileInfo.Name())
 			continue
 		}
-		inTextureIndex, found := wismt.TextureIdToIndexMap[uint16(inTextureId)]
-		if !found {
-			fmt.Printf("Skipping %s: index out of range\n", inTextureFileInfo.Name())
+		if inTextureId >= int(wismt.TextureInfoHeader.TextureCount) {
+			fmt.Printf("Skipping %s: id number is out of range\n", inTextureFileInfo.Name())
 			continue
 		}
 
-		msrdFileIndex := formats.MSRD_FILE_INDEX_TEXTURE_START + inTextureIndex
-		xbc1Header, err := formats.ReadXBC1Header(bytes.NewReader(wismt.CompressedFiles[msrdFileIndex]))
-		if err != nil {
-			fmt.Printf("Skipping %s: %s\n", inTextureFileInfo.Name(), err)
-			continue
-		}
-
+		origCachedTexture := wismtCachedTextures[inTextureId]
 		inTexturePath := filepath.Join(inTextureDir, inTextureFileInfo.Name())
-		go ReadTexture(inTexturePath, msrdFileIndex, xbc1Header.Name, fileReadChan)
+		inTextureIndex, hasFileEntry := wismt.TextureIdToIndexMap[formats.MSRDTextureId(inTextureId)]
+		if hasFileEntry {
+			msrdFileIndex := formats.MSRD_FILE_INDEX_TEXTURE_START + inTextureIndex
+			xbc1Header, err := formats.ReadXBC1Header(bytes.NewReader(wismt.CompressedFiles[msrdFileIndex]))
+			if err != nil {
+				fmt.Printf("Skipping %s: %s\n", inTextureFileInfo.Name(), err)
+				continue
+			}
+
+			go ReadTexture(inTexturePath, msrdFileIndex, formats.MSRDTextureId(inTextureId), origCachedTexture, xbc1Header.Name, fileReadChan)
+
+		} else {
+			go ReadTexture(inTexturePath, FILE_INDEX_NO_ENTRY, formats.MSRDTextureId(inTextureId), origCachedTexture, [0x1C]byte{}, fileReadChan)
+		}
+
 		routinesRunning++
 	}
 
@@ -129,16 +142,27 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 			continue
 		}
 
-		if result.MipsMIBL != nil {
-			mipsMIBLs[result.FileIndex-formats.MSRD_FILE_INDEX_TEXTURE_START] = result.MipsMIBL
+		if result.CompressedData != nil {
+			wismt.SetCompressedFileData(result.FileIndex, result.CompressedData)
 		}
-		wismt.SetCompressedFileData(result.FileIndex, result.CompressedData)
+		if result.TextureReadResult.MipsMIBL != nil {
+			mipsMIBLs[result.FileIndex-formats.MSRD_FILE_INDEX_TEXTURE_START] = result.TextureReadResult.MipsMIBL
+		}
+		if result.TextureReadResult.CacheMIBL != nil {
+			wismtCachedTextures[result.TextureReadResult.TextureId] = result.TextureReadResult.CacheMIBL
+		}
 		totalFilesReplaced++
 		fmt.Printf("Successfully placed %s\n", result.Path)
 	}
 
 	if totalFilesReplaced == 0 {
 		return errors.New("No files replaced")
+	}
+
+	fmt.Printf("Saving cached textures to file%d...\n", formats.MSRD_FILE_INDEX_0)
+	err = wismt.SetCachedTextures(wismtCachedTextures)
+	if err != nil {
+		return errors.New("Could not save cached textures: " + err.Error())
 	}
 
 	fmt.Printf("Saving mipmaps to file%d...\n", formats.MSRD_FILE_INDEX_MIPS)
@@ -175,15 +199,23 @@ func ReplaceTexturesInWismt(inWismtPath, inTextureDir, outWismtPath string) erro
 	return nil
 }
 
-type FileReadResult struct {
-	Err            error
-	Path           string
-	FileIndex      int
-	CompressedData formats.XBC1
-	MipsMIBL       formats.MIBL
+type TextureReadResult struct {
+	TextureId formats.MSRDTextureId
+	MipsMIBL  formats.MIBL
+	CacheMIBL formats.MIBL
 }
 
-func ReadTexture(texturePath string, index int, xbc1Name [0x1C]byte, channel chan *FileReadResult) {
+type FileReadResult struct {
+	Err               error
+	Path              string
+	FileIndex         int
+	CompressedData    formats.XBC1
+	TextureReadResult TextureReadResult
+}
+
+func ReadTexture(texturePath string, index int, textureId formats.MSRDTextureId,
+	origCacheMIBL formats.MIBL, xbc1Name [0x1C]byte, channel chan *FileReadResult) {
+
 	textureFile, err := os.Open(texturePath)
 	defer textureFile.Close()
 	if err != nil {
@@ -198,6 +230,38 @@ func ReadTexture(texturePath string, index int, xbc1Name [0x1C]byte, channel cha
 	}
 	if len(mips[0]) <= 1 {
 		channel <- &FileReadResult{Err: errors.New("missing mipmaps"), Path: texturePath}
+		return
+	}
+
+	origCacheMIBLFooter, err := origCacheMIBL.GetFooter()
+	if err != nil {
+		channel <- &FileReadResult{Err: err, Path: texturePath}
+		return
+	}
+
+	if origCacheMIBLFooter.Width > ddsHeader.Width || origCacheMIBLFooter.Height > ddsHeader.Height {
+		channel <- &FileReadResult{Err: errors.New("texture size mismatch"), Path: texturePath}
+		return
+	}
+
+	cachedMipLevel := bits.Len32(ddsHeader.Width/origCacheMIBLFooter.Width) - 1
+	if ddsHeader.Height>>cachedMipLevel != origCacheMIBLFooter.Height {
+		channel <- &FileReadResult{Err: errors.New("texture ratio mismatch"), Path: texturePath}
+		return
+	}
+
+	cacheMIBL, err := formats.NewMIBL(mips[0][cachedMipLevel:cachedMipLevel+int(origCacheMIBLFooter.MipCount)],
+		origCacheMIBLFooter.Width, origCacheMIBLFooter.Height, ddsHeaderDXT10.DxgiFormat, 0)
+
+	if index == FILE_INDEX_NO_ENTRY {
+		channel <- &FileReadResult{
+			Path:      texturePath,
+			FileIndex: index,
+			TextureReadResult: TextureReadResult{
+				TextureId: textureId,
+				CacheMIBL: cacheMIBL,
+			},
+		}
 		return
 	}
 
@@ -218,7 +282,11 @@ func ReadTexture(texturePath string, index int, xbc1Name [0x1C]byte, channel cha
 		Path:           texturePath,
 		FileIndex:      index,
 		CompressedData: compressedTextureData,
-		MipsMIBL:       mipsMIBL,
+		TextureReadResult: TextureReadResult{
+			TextureId: textureId,
+			MipsMIBL:  mipsMIBL,
+			CacheMIBL: cacheMIBL,
+		},
 	}
 }
 

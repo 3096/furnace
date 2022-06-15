@@ -67,6 +67,8 @@ const MSRD_FILE_INDEX_0 = 0
 const MSRD_FILE_INDEX_MIPS = 1
 const MSRD_FILE_INDEX_TEXTURE_START = 2
 
+type MSRDTextureId uint16
+
 type MSRDTextureInfoHeader struct {
 	TextureCount       uint32
 	TextureBlockSize   uint32
@@ -87,7 +89,7 @@ type MSRD struct {
 	CompressedFiles     []XBC1
 	MetaHeader          MSRDMetaDataHeader
 	DataItems           []MSRDDataItem
-	TextureIdToIndexMap map[uint16]int
+	TextureIdToIndexMap map[MSRDTextureId]int
 	TextureInfoHeader   MSRDTextureInfoHeader
 	TextureInfoItems    []MSRDTextureInfoItem
 }
@@ -135,12 +137,12 @@ func ReadMSRD(reader io.ReadSeeker) (MSRD, error) {
 	}
 
 	reader.Seek(int64(header.MetaDataOffset+metaHeader.TextureIdsOffset), io.SeekStart)
-	textureIds := make([]uint16, metaHeader.TextureIdsCount)
+	textureIds := make([]MSRDTextureId, metaHeader.TextureIdsCount)
 	if err := binary.Read(reader, furnace.TargetByteOrder, &textureIds); err != nil {
 		return MSRD{}, errors.New("Error reading msrd texture ids: " + err.Error())
 	}
 
-	textureIdToIndexMap := make(map[uint16]int)
+	textureIdToIndexMap := make(map[MSRDTextureId]int)
 	for i, id := range textureIds {
 		textureIdToIndexMap[id] = i
 	}
